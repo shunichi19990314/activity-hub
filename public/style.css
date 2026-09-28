@@ -41,6 +41,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scrollbar-color: var(--border) transparent; }
 body {
   margin: 0;
@@ -138,6 +139,30 @@ button { font-family: inherit; }
   animation: spin .8s linear infinite;
 }
 
+/* ============ ウェルカム(オンボーディング) ============ */
+.onboard {
+  max-width: 660px; margin: 44px auto; text-align: center;
+  background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+  padding: 44px 34px; box-shadow: var(--shadow);
+  animation: fadeUp .4s ease both;
+}
+.onboard-logo {
+  display: inline-grid; place-items: center; width: 72px; height: 72px;
+  border-radius: 20px; color: #fff; margin-bottom: 18px;
+  background: linear-gradient(135deg, #6d8dff, #a855f7 60%, #ec4899);
+  box-shadow: 0 8px 24px rgba(124, 96, 255, .35);
+}
+.onboard h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: .02em; }
+.onboard-desc { margin: 0 auto 22px; color: var(--muted); font-size: 13.5px; line-height: 1.9; max-width: 500px; }
+.onboard-desc b { color: var(--text); }
+.onboard-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; }
+.onboard-actions .btn { padding: 11px 22px; font-size: 14px; }
+.onboard-hint {
+  font-size: 11.5px; color: var(--muted); line-height: 1.7; text-align: left;
+  background: rgba(127, 127, 127, .07); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px;
+}
+
 /* ============ カード ============ */
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -209,6 +234,7 @@ button { font-family: inherit; }
 
 /* カード状態表示 */
 .card-empty, .card-error { padding: 26px 18px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.card-empty .btn { margin-top: 12px; }
 .card-error .err-icon { font-size: 22px; display: block; margin-bottom: 8px; }
 .card-error .err-msg { color: var(--danger); word-break: break-word; }
 .card-error .err-hint { margin-top: 8px; font-size: 11.5px; }

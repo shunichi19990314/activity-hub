@@ -284,9 +284,65 @@ function hasSourceInConfig(sid) {
 }
 
 /* ---------- メイン描画 ---------- */
+function hasAnySource() {
+  const c = state.config;
+  if (!c) return false;
+  return !!((c.github.enabled && (c.github.users || []).length) ||
+    c.hn.enabled ||
+    (c.reddit.enabled && (c.reddit.subreddits || []).length) ||
+    (c.rss.enabled && (c.rss.feeds || []).length) ||
+    (c.youtube.enabled && (c.youtube.channels || []).length) ||
+    (c.x.enabled && (c.x.accounts || []).length) ||
+    (c.gcal.enabled && (c.gcal.calendarIds || []).length));
+}
+
+/* 初回(ソース未設定)時のウェルカム画面 */
+function buildOnboarding() {
+  const box = el('div', 'onboard');
+  box.appendChild(svgEl('<svg viewBox="0 0 24 24" width="40" height="40"><path fill="currentColor" d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>', 'onboard-logo'));
+  box.appendChild(el('h2', '', 'ようこそ Activity Hub へ'));
+  const p = el('p', 'onboard-desc');
+  p.innerHTML = 'まだ追跡するサイトが設定されていません。<br><b>設定</b>から GitHub・Hacker News・RSS・YouTube・X・Reddit・Google カレンダーなどを追加すると、最近のアクティビティがここに集約されます。';
+  box.appendChild(p);
+  const actions = el('div', 'onboard-actions');
+  const b1 = el('button', 'btn btn-primary', '⚙️ 設定を開く');
+  b1.addEventListener('click', openSettings);
+  const b2 = el('button', 'btn', '✨ サンプルで試す');
+  b2.title = 'キー不要のソース(GitHub: torvalds / Hacker News / NHK NEWS / YouTube: @NHK)を追加します';
+  b2.addEventListener('click', addStarter);
+  actions.appendChild(b1); actions.appendChild(b2);
+  box.appendChild(actions);
+  box.appendChild(el('div', 'onboard-hint',
+    '💡 X・Reddit・Google カレンダーは設定画面で API キーを入力するだけで有効になります(再起動不要)。「サンプルで試す」ではキー不要のソースだけを追加するので、エラーカードは表示されません。'));
+  return box;
+}
+
+async function addStarter() {
+  try {
+    const r = await fetch('/api/starter', { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.message || 'サーバーエラー');
+    state.config = d.config;
+    toast('サンプル設定を追加しました。アクティビティを取得中…', 'ok');
+    await fetchAll(true);
+  } catch (e) {
+    toast('サンプルの追加に失敗しました: ' + e.message, 'err');
+  }
+}
+
 function render() {
-  renderChips();
   const v = state.view;
+  // 初回: ソースが何も設定されていなければウェルカム画面(チップも隠す)
+  const onboarding = !state.demo && !state.loading && state.results.length === 0 && !hasAnySource();
+  chipsEl.hidden = onboarding;
+  if (onboarding) {
+    timelineEl.hidden = true; gridEl.hidden = false;
+    gridEl.textContent = '';
+    gridEl.appendChild(buildOnboarding());
+    loadingEl.hidden = true;
+    return;
+  }
+  renderChips();
   if (v.mode === 'timeline') {
     gridEl.hidden = true; timelineEl.hidden = false;
     buildTimeline(state.results);
@@ -297,7 +353,12 @@ function render() {
       SERVICE_ORDER.indexOf(a.service) - SERVICE_ORDER.indexOf(b.service));
     const filtered = v.service ? results.filter((r) => r.service === v.service) : results;
     if (!filtered.length && !state.loading) {
-      gridEl.appendChild(el('div', 'card-empty', '表示するソースがありません。「設定」から追加してください。'));
+      const box = el('div', 'card-empty');
+      box.appendChild(el('div', '', 'このサービスには追跡中のソースがありません。'));
+      const b = el('button', 'btn', '設定から追加');
+      b.addEventListener('click', openSettings);
+      box.appendChild(b);
+      gridEl.appendChild(box);
     }
     for (const r of filtered) gridEl.appendChild(buildCard(r));
   }

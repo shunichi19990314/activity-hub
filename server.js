@@ -104,14 +104,26 @@ function envStatus() {
 }
 
 /* ================= 設定 (config.json) ================= */
+/* 初回は空 = サイトを開いてから設定画面で追加する(プリセットは表示しない) */
 const DEFAULT_CONFIG = {
+  github:  { enabled: true, users: [] },
+  hn:      { enabled: false, mode: 'top', limit: 15 },
+  reddit:  { enabled: true, subreddits: [] },
+  rss:     { enabled: true, feeds: [] },
+  youtube: { enabled: true, channels: [] },
+  x:       { enabled: true, accounts: [] },
+  gcal:    { enabled: true, calendarIds: [] },
+};
+
+/* 「サンプルで試す」用のスターター設定(キー不要なソースのみ) */
+const STARTER_CONFIG = {
   github:  { enabled: true, users: ['torvalds'] },
   hn:      { enabled: true, mode: 'top', limit: 15 },
-  reddit:  { enabled: true, subreddits: ['japan'] },
+  reddit:  { enabled: true, subreddits: [] },
   rss:     { enabled: true, feeds: [{ name: 'NHK NEWS', url: 'https://www3.nhk.or.jp/rss/news/cat0.xml' }] },
   youtube: { enabled: true, channels: ['@NHK'] },
-  x:       { enabled: true, accounts: ['NASA'] },
-  gcal:    { enabled: true, calendarIds: ['primary'] },
+  x:       { enabled: true, accounts: [] },
+  gcal:    { enabled: true, calendarIds: [] },
 };
 
 function loadConfig() {
@@ -730,6 +742,13 @@ const server = http.createServer(async (req, res) => {
       const next = sanitizeConfig(merged);
       saveConfig(next);
       cache.clear(); // 設定変更でキャッシュ破棄
+      return json(res, { ok: true, config: next });
+    }
+    if (p === '/api/starter' && req.method === 'POST') {
+      // ウェルカム画面の「サンプルで試す」: キー不要のソースだけを入れた初期設定を投入
+      const next = sanitizeConfig(STARTER_CONFIG);
+      saveConfig(next);
+      cache.clear();
       return json(res, { ok: true, config: next });
     }
     if (p === '/api/feed/all') {
