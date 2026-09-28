@@ -27,5 +27,12 @@
   "gcal": {
     "enabled": true,
     "calendarIds": []
+  },
+  "hkrpg": {
+    "enabled": false,
+    "region": "os_asia",
+    "uid": "",
+    "checkin": false,
+    "news": true
   }
 }

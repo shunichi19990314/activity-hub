@@ -14,6 +14,7 @@
 | **YouTube** | チャンネルの最近の動画 | 任意(なしは RSS 経由、あれば Data API v3) |
 | **X (Twitter)** | アカウントの最近の投稿 | **必要**(API v2 Bearer Token) |
 | **Google カレンダー** | 過去7日〜未来21日の予定 | **必要**(サービスアカウント or OAuth) |
+| **崩壊:スターレイル** | 開拓力・日課・週間・派遣(リアルタイムノート)+ 公式ニュース + デイリーサインイン自動化(任意) | **Cookie 必要**(ニュースは不要)・非公式API |
 
 ## クイックスタート
 
@@ -65,6 +66,7 @@ API キーも同じ設定画面から入力でき、**保存すると再起動�
 - **YouTube**: https://console.cloud.google.com → 「YouTube Data API v3」有効化 → 認証情報 → APIキー
 - **X (Twitter)**: https://developer.x.com → Projects & Apps → App の *Keys and tokens* → **Bearer Token**
   (Free プランは読み取り制限が厳しいため表示件数が少ない/エラーになることがあります)
+- **崩壊:スターレイル**: HoYoLAB の Cookie(`ltoken_v2` + `ltmid_v2`)— 詳細は下記「崩壊:スターレイル連携」参照
 - **Google カレンダー**:
   - 方法A(推奨): サービスアカウント JSON を `activity-hub/service-account.json` として置き、
     `.env` の `GOOGLE_APPLICATION_CREDENTIALS=service-account.json` を設定。
@@ -82,6 +84,30 @@ API キーも同じ設定画面から入力でき、**保存すると再起動�
 - **ダーク/ライトテーマ**(ブラウザに記憶)、日本語 UI、レスポンシブ
 - **デモモード** — サーバー未起動時に `public/index.html` を直接開いても、サンプルデータでレイアウトを確認できます
 - **デプロイ対応** — Dockerfile / railway.json / ヘルスチェック(`/api/health`)/ Volume による設定永続化(`DATA_DIR`)/ オプションの Basic 認証
+
+## 崩壊:スターレイル連携(HoYoLAB・非公式API)
+
+**表示されるもの**: ⚡開拓力(現在値/上限/満タンまでの時間・予約開拓力)/ 📋日課(デイリー訓練)/ 🌌模擬宇宙(週間)/ 🗓週間割引 / 🚀派遣(残り時間・完了通知)/ 📰公式ニュース(お知らせ・イベント — **Cookie 不要**)/ 🎁デイリーサインイン自動化(オプション)
+
+### 設定手順(国際版 HoYoLAB)
+
+1. ブラウザで https://www.hoyolab.com にログイン
+2. `F12`(開発者ツール)→ **Application** → **Cookies** → `https://www.hoyolab.com`
+3. **`ltoken_v2`** と **`ltmid_v2`** の値をコピーし、
+   `ltoken_v2=値; ltmid_v2=値` の形で本アプリの設定画面(崩壊:スターレイル → HOYOLAB_COOKIE)に貼り付け
+4. サーバー(アジア/北米/欧州/TW・HK・MO)を選択。**UID は空欄で OK**(Cookie から自動検出)
+5. 保存 → カードに表示されます
+
+### 注意
+
+- **非公式 API** です(HoYoLAB 内部 API のコミュニティ準拠実装。DS 署名をサーバー側で生成)。仕様変更で動かなくなることがあります
+- HoYoLAB 側の **プライバシー設定「リアルタイムデータの表示(Show real-time data)」が ON** でないと取得できません(retcode 10102)
+- Cookie はパスワード同然です。**サーバー側(secrets.json・権限600 / .env)にのみ保存**され、ブラウザには設定済みフラグしか返りません。パスワード変更・ログアウトで無効化された場合は貼り直してください(retcode 10001)
+- 中国版(米遊社)はエンドポイント・認証が異なるため未対応です(国際版のみ)
+- **サインイン自動化は「書き込み」操作**です。コミュニティで広く使われていますが非公式であり、有効化は自己責任でお願いします(1時間クールダウン付きで連打はしません)
+- ポーリングは本アプリのキャッシュ(5分)経由のみ。短時間の連打は retcode 10104(アクセス頻度制限)の原因になります
+
+
 
 ## Railway にデプロイする
 
@@ -163,7 +189,7 @@ activity-hub/
 - `GET /api/health` — ヘルスチェック(Railway 用・認証不要)
 - `GET /api/state` — 現在の設定とキー設定状況(値は含まずフラグのみ)
 - `GET /api/feed/all?force=1` — 全ソースのフィード
-- `GET /api/feed/{github|hn|reddit|rss|youtube|x|gcal}?...&force=1` — 個別ソース
+- `GET /api/feed/{github|hn|reddit|rss|youtube|x|gcal|hkrpg|hkrpgnews}?...&force=1` — 個別ソース
 - `POST /api/config` — ソース設定の保存
 - `POST /api/secrets` — APIキーの保存/削除(`{ "X_BEARER_TOKEN": "値" }` / 削除は `null`。`secrets.json` に 600 で保存し即反映)
 - RSS エンドポイントは `config.json` に登録済みの URL のみ取得します(オープンプロキシ防止)

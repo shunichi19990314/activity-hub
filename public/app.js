@@ -10,6 +10,7 @@ const ICONS = {
   youtube: '<svg viewBox="0 0 24 24"><rect x="1.8" y="5" width="20.4" height="14" rx="4.2" fill="#ff0033"/><path d="M10.2 9.1v5.8l5.2-2.9z" fill="#fff"/></svg>',
   x: '<svg viewBox="0 0 24 24"><path d="M4.5 4.5 11 12.4l-6.2 7.1h2.4L12 14l4 5.5h3l-6.6-8 6-6.9h-2.4L12.3 10l-3.4-5.5z" fill="currentColor"/><path d="M4 4l16 16M20 4 4 20" stroke="currentColor" stroke-width="0" fill="none"/></svg>',
   gcal: '<svg viewBox="0 0 24 24" fill="none" stroke="#5ea1ff" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1" fill="#5ea1ff" stroke="none"/><circle cx="12" cy="14.5" r="1" fill="#5ea1ff" stroke="none"/><circle cx="15.5" cy="14.5" r="1" fill="#5ea1ff" stroke="none"/><circle cx="8.5" cy="17.8" r="1" fill="#5ea1ff" stroke="none"/><circle cx="12" cy="17.8" r="1" fill="#5ea1ff" stroke="none"/></svg>',
+  hkrpg: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="m12 1.8 2.9 6.6 7.1.7-5.4 4.8 1.6 7L12 17.2l-6.2 3.7 1.6-7L2 9.1l7.1-.7L12 1.8z"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   grid: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg>',
 };
@@ -22,8 +23,9 @@ const SERVICES = {
   youtube: { name: 'YouTube',         color: 'var(--c-youtube)' },
   x:       { name: 'X (Twitter)',     color: 'var(--c-x)' },
   gcal:    { name: 'Google カレンダー', color: 'var(--c-gcal)' },
+  hkrpg:   { name: '崩壊:スターレイル', color: 'var(--c-hkrpg)' },
 };
-const SERVICE_ORDER = ['github', 'hn', 'reddit', 'rss', 'youtube', 'x', 'gcal'];
+const SERVICE_ORDER = ['github', 'hn', 'reddit', 'rss', 'youtube', 'x', 'gcal', 'hkrpg'];
 
 /* ---------- 状態 ---------- */
 const state = {
@@ -130,6 +132,13 @@ function buildItemEl(item, service) {
     meta.appendChild(el('span', '', parts.join(' · ')));
   }
   if (parts_len(meta)) main.appendChild(meta);
+  if (item.progress !== undefined && item.progress !== null) {
+    const pb = el('div', 'pbar');
+    const pf = el('div', 'pfill');
+    pf.style.width = Math.round(Math.min(1, Math.max(0, Number(item.progress) || 0)) * 100) + '%';
+    pb.appendChild(pf);
+    main.appendChild(pb);
+  }
   row.appendChild(main);
 
   if (item.thumb) {
@@ -279,6 +288,7 @@ function hasSourceInConfig(sid) {
     case 'youtube': return c.youtube.enabled && (c.youtube.channels || []).length > 0;
     case 'x': return c.x.enabled && (c.x.accounts || []).length > 0;
     case 'gcal': return c.gcal.enabled && (c.gcal.calendarIds || []).length > 0;
+    case 'hkrpg': return !!(c.hkrpg && c.hkrpg.enabled);
   }
   return false;
 }
@@ -394,6 +404,7 @@ async function fetchAll(force = false, silent = false) {
 
 async function refreshOne(result, btn) {
   const p = new URLSearchParams({ force: '1' });
+  let endpoint = `/api/feed/${result.service}`;
   switch (result.service) {
     case 'github': p.set('user', result.source); break;
     case 'hn': p.set('mode', state.config.hn.mode); p.set('limit', state.config.hn.limit); break;
@@ -401,6 +412,9 @@ async function refreshOne(result, btn) {
     case 'youtube': p.set('channel', result.source); break;
     case 'x': p.set('user', String(result.source).replace(/^@/, '')); break;
     case 'gcal': p.set('calendarId', result.source); break;
+    case 'hkrpg':
+      if (String(result.source).startsWith('ニュース')) endpoint = '/api/feed/hkrpgnews';
+      break;
     case 'rss': {
       const feed = (state.config.rss.feeds || []).find((f) => (f.name || new URL(f.url).hostname) === result.source || f.url === result.source);
       if (feed) p.set('url', feed.url);
@@ -409,7 +423,7 @@ async function refreshOne(result, btn) {
   }
   if (btn) btn.querySelector('svg').classList.add('spin');
   try {
-    const res = await fetch(`/api/feed/${result.service}?${p}`);
+    const res = await fetch(`${endpoint}?${p}`);
     const data = await res.json();
     const idx = state.results.findIndex((r) => r.service === result.service && r.source === result.source);
     if (idx >= 0) state.results[idx] = data; else state.results.push(data);
@@ -515,6 +529,10 @@ const SETTINGS_SCHEMA = [
       { k: 'GOOGLE_CLIENT_SECRET', label: 'Client Secret', ph: 'GOCSPX-…' },
       { k: 'GOOGLE_REFRESH_TOKEN', label: 'Refresh Token', ph: '1//0…(calendar.readonly スコープ)' },
     ], keyNote: 'サービスアカウント方式を使う場合は .env の GOOGLE_APPLICATION_CREDENTIALS で JSON パスを指定してください' },
+  { id: 'hkrpg', name: '崩壊:スターレイル', desc: '開拓力・日課・週間・派遣 + 公式ニュース(HoYoLAB 国際版・非公式API)', envKey: 'hkrpg', envRequired: true, hkrpgCustom: true,
+    keys: [{ k: 'HOYOLAB_COOKIE', label: 'HoYoLAB Cookie', ph: 'ltoken_v2=…; ltmid_v2=…', required: true,
+      hint: 'パスワード同然の認証情報です。サーバー側(secrets.json・600)にのみ保存され、ブラウザには返りません' }],
+    keyNote: '取得方法: hoyolab.com にログイン → F12(開発者ツール)→ Application → Cookies → https://www.hoyolab.com → 「ltoken_v2」と「ltmid_v2」の値を「ltoken_v2=値; ltmid_v2=値」の形で貼り付け' },
 ];
 
 function openSettings() {
@@ -586,6 +604,8 @@ function renderSettings() {
       sbody.appendChild(row);
     } else if (s.feeds) {
       renderFeedRows(sbody);
+    } else if (s.hkrpgCustom) {
+      renderHkrpgBlock(sbody);
     } else if (s.listKey) {
       renderListRows(sbody, s);
     }
@@ -649,6 +669,41 @@ function buildKeyRow(keyDef) {
   }
   row.appendChild(line);
   return row;
+}
+
+/* 崩壊:スターレイル設定ブロック */
+function renderHkrpgBlock(container) {
+  const c = draft.hkrpg || (draft.hkrpg = { enabled: true, region: 'os_asia', uid: '', checkin: false, news: true });
+  const row1 = el('div', 'setting-row');
+  row1.appendChild(el('span', 'setting-desc', 'サーバー'));
+  const sel = el('select');
+  for (const [v, label] of [['os_asia', 'アジア(Asia)'], ['os_usa', '北米(America)'], ['os_eur', '欧州(Europe)'], ['os_cht', 'TW/HK/MO']]) {
+    const o = el('option', '', label); o.value = v;
+    if ((c.region || 'os_asia') === v) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener('change', () => { c.region = sel.value; });
+  row1.appendChild(sel);
+  const uid = el('input'); uid.type = 'text'; uid.value = c.uid || ''; uid.placeholder = 'UID(空欄 = Cookie から自動検出)';
+  uid.addEventListener('input', () => { c.uid = uid.value.trim(); });
+  row1.appendChild(uid);
+  container.appendChild(row1);
+
+  const mkSwitch = (checked, label, onChange) => {
+    const row = el('div', 'setting-row');
+    const sw = el('label', 'switch');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!checked;
+    cb.addEventListener('change', () => onChange(cb.checked));
+    sw.appendChild(cb); sw.appendChild(el('span', 'slider'));
+    row.appendChild(sw);
+    row.appendChild(el('span', 'setting-desc', label));
+    container.appendChild(row);
+  };
+  mkSwitch(c.news !== false, '公式ニュース(お知らせ・イベント)を表示 — Cookie 不要', (v) => { c.news = v; });
+  mkSwitch(c.checkin, '⚠️ HoYoLAB デイリーサインインを自動化(非公式の書き込み操作・自己責任)', (v) => { c.checkin = v; });
+
+  container.appendChild(el('div', 'setting-note',
+    '💡 HoYoLAB のプライバシー設定で「リアルタイムデータの表示(Show real-time data)」が OFF だとデータを取得できません(retcode 10102)。Cookie はパスワード変更やログアウトで無効化されることがあり、その場合は貼り直しが必要です。'));
 }
 
 function renderListRows(container, s) {

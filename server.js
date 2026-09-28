@@ -46,6 +46,7 @@ const SECRET_KEYS = [
   'YOUTUBE_API_KEY',
   'X_BEARER_TOKEN', 'TWITTER_BEARER_TOKEN',
   'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN',
+  'HOYOLAB_COOKIE',
 ];
 let runtimeSecrets = {};
 const SECRETS_PATH = ENV('DATA_DIR') ? path.join(ENV('DATA_DIR'), 'secrets.json') : path.join(ROOT, 'secrets.json');
@@ -100,6 +101,7 @@ function envStatus() {
     x: !!(SECRET('X_BEARER_TOKEN') || SECRET('TWITTER_BEARER_TOKEN')),
     gcal: !!(ENV('GOOGLE_APPLICATION_CREDENTIALS') ||
       (SECRET('GOOGLE_CLIENT_ID') && SECRET('GOOGLE_CLIENT_SECRET') && SECRET('GOOGLE_REFRESH_TOKEN'))),
+    hkrpg: !!SECRET('HOYOLAB_COOKIE'),
   };
 }
 
@@ -113,6 +115,7 @@ const DEFAULT_CONFIG = {
   youtube: { enabled: true, channels: [] },
   x:       { enabled: true, accounts: [] },
   gcal:    { enabled: true, calendarIds: [] },
+  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true },
 };
 
 /* 「サンプルで試す」用のスターター設定(キー不要なソースのみ) */
@@ -124,6 +127,7 @@ const STARTER_CONFIG = {
   youtube: { enabled: true, channels: ['@NHK'] },
   x:       { enabled: true, accounts: [] },
   gcal:    { enabled: true, calendarIds: [] },
+  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true },
 };
 
 function loadConfig() {
@@ -166,6 +170,15 @@ function sanitizeConfig(input) {
   if (g.youtube) { out.youtube = { enabled: !!g.youtube.enabled, channels: strList(g.youtube.channels) }; }
   if (g.x) { out.x = { enabled: !!g.x.enabled, accounts: strList(g.x.accounts).map((s) => s.replace(/^@/, '')) }; }
   if (g.gcal) { out.gcal = { enabled: !!g.gcal.enabled, calendarIds: strList(g.gcal.calendarIds) }; }
+  if (g.hkrpg) {
+    out.hkrpg = {
+      enabled: !!g.hkrpg.enabled,
+      region: ['os_asia', 'os_usa', 'os_eur', 'os_cht'].includes(g.hkrpg.region) ? g.hkrpg.region : 'os_asia',
+      uid: str(g.hkrpg.uid).replace(/\D/g, '').slice(0, 12),
+      checkin: !!g.hkrpg.checkin,
+      news: g.hkrpg.news !== false,
+    };
+  }
   return out;
 }
 
@@ -619,6 +632,186 @@ async function feedGcal(calendarId, force = false) {
   } catch (e) { return errResult('gcal', calendarId, e); }
 }
 
+/* ================= 崩壊:スターレイル (HoYoLAB 国際版・非公式API) ================= */
+const HOYO = {
+  bbs: 'https://bbs-api-os.hoyolab.com',
+  luna: 'https://sg-hkrpg-api.hoyolab.com',
+  salt: '6s25p5ox5y14umn1p61aqyyvbvvl3lrt', // 国際版 client_type=5 用 salt(コミュニティ準拠)
+  actId: 'e202211211516311',                 // HSR デイリーサインイン act_id
+};
+const HSR_REGIONS = { os_asia: 'アジア', os_usa: '北米', os_eur: '欧州', os_cht: 'TW/HK/MO' };
+
+function generateDS() {
+  const t = Math.floor(Date.now() / 1000);
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let r = '';
+  for (let i = 0; i < 6; i++) r += chars[Math.floor(Math.random() * chars.length)];
+  const hash = crypto.createHash('md5').update(`salt=${HOYO.salt}&t=${t}&r=${r}`).digest('hex');
+  return `${t},${r},${hash}`;
+}
+
+async function hoyoFetch(url, { cookie, method = 'GET', body, referer = 'https://www.hoyolab.com/' } = {}) {
+  const headers = {
+    'x-rpc-app_version': '2.55.0',
+    'x-rpc-client_type': '5',
+    'x-rpc-language': 'ja-jp',
+    Referer: referer,
+    Origin: 'https://www.hoyolab.com',
+    DS: generateDS(),
+  };
+  if (cookie) headers.Cookie = cookie;
+  const res = await fetchRaw(url, { method, headers, body: body ? JSON.stringify(body) : undefined, accept: 'application/json', timeout: 15000 });
+  if (!res.ok) throw new Error(`HoYoLAB HTTP ${res.status}`);
+  return res.json();
+}
+
+function hoyoError(retcode, message) {
+  const e = new Error(
+    retcode === 10001 || retcode === -100 || retcode === 10103
+      ? `HoYoLAB Cookie が無効または期限切れです。設定画面で貼り直してください(retcode ${retcode})`
+      : retcode === -1
+        ? `HoYoLAB エラー retcode -1(パラメータ不正): Cookie の ltmid_v2 の値や UID/サーバー設定を確認してください(${message || ''})`
+        : retcode === 10102
+          ? 'ゲームデータが非公開です。HoYoLAB アプリ/サイト → 設定 → プライバシー管理 →「リアルタイムデータの表示」を ON にしてください(retcode 10102)'
+          : retcode === 10104
+            ? 'HoYoLAB へのアクセスが頻繁すぎます。数分待ってから再試行してください(retcode 10104)'
+            : `HoYoLAB エラー retcode ${retcode}: ${message || ''}`);
+  if (retcode === 10001 || retcode === -100 || retcode === 10103) e.code = 'credentials_required';
+  return e;
+}
+
+function cookieValue(cookie, name) {
+  const m = String(cookie || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+function fmtDur(sec) {
+  sec = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return h > 0 ? `${h}時間${m}分` : `${m}分`;
+}
+
+// Cookie からサーバー/UID を自動検出(getGameRecordCard)
+async function resolveHkrpgRole(cookie, cfg) {
+  if (cfg.uid) return { region: cfg.region, role_id: cfg.uid, nickname: '', level: null };
+  const ltmid = cookieValue(cookie, 'ltmid_v2') || cookieValue(cookie, 'account_id_v2') || cookieValue(cookie, 'ltuid');
+  if (!ltmid) throw new Error('Cookie に ltmid_v2(HoYoLAB UID)が含まれていません。hoyolab.com で Cookie「全体」をコピーしてください');
+  const j = await hoyoFetch(`${HOYO.bbs}/game_record/card/wapi/getGameRecordCard?uid=${encodeURIComponent(ltmid)}`, { cookie });
+  if (j.retcode !== 0) throw hoyoError(j.retcode, j.message);
+  const cards = ((j.data && j.data.list) || []).filter((c) => c.game_biz === 'hkrpg');
+  if (!cards.length) throw new Error('この HoYoLAB アカウントにスターレイルの公開キャラクターが見つかりません(プライバシー設定「リアルタイムデータの表示」を確認してください)');
+  const card = cards[0];
+  return { region: card.region, role_id: card.game_role_id, nickname: card.nickname || '', level: card.level };
+}
+
+let hkrpgCheckinAttempt = 0; // サインイン試行の最終時刻(1時間のクールダウン)
+async function feedHkrpg(cfg, force = false) {
+  const key = 'hkrpg:status';
+  const cached = cacheGet(key, force); if (cached) return cached;
+  const label = `ステータス(${HSR_REGIONS[cfg.region] || cfg.region}${cfg.uid ? ' · UID ' + cfg.uid : ''})`;
+  try {
+    const cookie = SECRET('HOYOLAB_COOKIE');
+    if (!cookie) {
+      const e = new Error('設定画面で HOYOLAB_COOKIE を貼り付けてください。取得方法: hoyolab.com にログイン → F12 → Application → Cookies → ltoken_v2 と ltmid_v2(または Cookie ヘッダー全体)');
+      e.code = 'credentials_required';
+      throw e;
+    }
+    const role = await resolveHkrpgRole(cookie, cfg);
+    const j = await hoyoFetch(`${HOYO.bbs}/game_record/hkrpg/api/note?server=${encodeURIComponent(role.region)}&role_id=${encodeURIComponent(role.role_id)}`, { cookie });
+    if (j.retcode !== 0) throw hoyoError(j.retcode, j.message);
+    const d = j.data || {};
+    const now = new Date().toISOString();
+    const items = [];
+    const author = role.nickname || 'Honkai: Star Rail';
+    items.push({
+      id: 'stamina', title: `⚡ 開拓力 ${d.current_stamina} / ${d.max_stamina}`, url: '', author, time: now,
+      text: d.current_stamina >= d.max_stamina ? '満タンです!' : `満タンまで ${fmtDur(d.stamina_recover_time)}${d.current_reserve_stamina ? ` · 予約開拓力 ${d.current_reserve_stamina}` : ''}`,
+      meta: 'リアルタイムノート', progress: d.max_stamina ? d.current_stamina / d.max_stamina : 0,
+    });
+    items.push({
+      id: 'daily', title: `📋 日課 ${d.current_train_score} / ${d.max_train_score}`, url: '', author, time: now,
+      text: d.current_train_score >= d.max_train_score ? '本日の日課は完了!' : `あと ${Math.max(0, d.max_train_score - d.current_train_score)} ポイント`,
+      meta: 'デイリー訓練', progress: d.max_train_score ? d.current_train_score / d.max_train_score : 0,
+    });
+    items.push({
+      id: 'rogue', title: `🌌 模擬宇宙(週間)${d.current_rogue_score} / ${d.max_rogue_score}`, url: '', author, time: now,
+      text: '今週の模擬宇宙ポイント', meta: 'ウィークリー', progress: d.max_rogue_score ? d.current_rogue_score / d.max_rogue_score : 0,
+    });
+    items.push({
+      id: 'weekly', title: `🗓 週間割引 ${d.weekly_cocoon_cnt} / ${d.weekly_cocoon_limit}`, url: '', author, time: now,
+      text: '凝結虚影・蠹役の匣などの週間ボーナス消化数', meta: 'ウィークリー', progress: d.weekly_cocoon_limit ? d.weekly_cocoon_cnt / d.weekly_cocoon_limit : 0,
+    });
+    for (const [i, ex] of (d.expeditions || []).entries()) {
+      const finished = ex.status === 'Finished';
+      items.push({
+        id: 'exp' + i, title: `🚀 派遣:${ex.name || '探索'}`, url: '', author, time: now,
+        text: finished ? '完了!報酬を受け取れます' : `残り ${fmtDur(ex.remaining_time)}`,
+        meta: finished ? '✅ 完了' : '進行中', progress: finished ? 1 : null,
+      });
+    }
+    // デイリーサインイン自動化(オプション)
+    if (cfg.checkin) {
+      try {
+        const info = await hoyoFetch(`${HOYO.luna}/event/luna/info?lang=ja-jp&act_id=${HOYO.actId}&region=${encodeURIComponent(role.region)}`, { cookie, referer: 'https://act.hoyolab.com/' });
+        if (info.retcode === 0 && info.data) {
+          if (info.data.is_sign) {
+            items.unshift({ id: 'checkin', title: `✅ 本日のサインイン済み(今月 ${info.data.total_sign_day} 日)`, url: '', author: 'HoYoLAB サインイン', time: now, text: '', meta: '' });
+          } else if (Date.now() - hkrpgCheckinAttempt > 3600e3) {
+            hkrpgCheckinAttempt = Date.now();
+            const sign = await hoyoFetch(`${HOYO.luna}/event/luna/sign?lang=ja-jp`, { method: 'POST', cookie, referer: 'https://act.hoyolab.com/', body: { act_id: HOYO.actId, region: role.region, lang: 'ja-jp' } });
+            if (sign.retcode === 0) {
+              const aw = (sign.data && sign.data.award) || {};
+              items.unshift({ id: 'checkin', title: `🎁 サインイン完了!(今月 ${(info.data.total_sign_day || 0) + 1} 日目)`, url: '', author: 'HoYoLAB サインイン', time: new Date().toISOString(), text: aw.name ? `報酬: ${aw.name} ×${aw.cnt}` : '', meta: '' });
+            } else if (sign.retcode === 2001) {
+              items.unshift({ id: 'checkin', title: '✅ 本日のサインイン済み', url: '', author: 'HoYoLAB サインイン', time: now, text: '', meta: '' });
+            } else {
+              items.unshift({ id: 'checkin', title: `⚠️ サインイン失敗(retcode ${sign.retcode})`, url: '', author: 'HoYoLAB サインイン', time: now, text: sign.message || '', meta: '' });
+            }
+          } else {
+            items.unshift({ id: 'checkin', title: '🕓 未サインイン(クールダウン中・最大1時間後に自動再試行)', url: '', author: 'HoYoLAB サインイン', time: now, text: '', meta: '' });
+          }
+        }
+      } catch (e) {
+        items.unshift({ id: 'checkin', title: '⚠️ サインイン確認に失敗: ' + (e.message || e), url: '', author: 'HoYoLAB サインイン', time: new Date().toISOString(), text: '', meta: '' });
+      }
+    }
+    const source = `ステータス${role.nickname ? ' · ' + role.nickname : ''}(${HSR_REGIONS[role.region] || role.region} · UID ${role.role_id})`;
+    return cacheSet(key, { ok: true, service: 'hkrpg', source, items, fetchedAt: new Date().toISOString() });
+  } catch (e) { return errResult('hkrpg', label, e); }
+}
+
+// 公式ニュース(Cookie 不要)
+async function feedHkrpgNews(force = false) {
+  const key = 'hkrpg:news';
+  const cached = cacheGet(key, force); if (cached) return cached;
+  try {
+    const types = [[1, 'お知らせ'], [2, 'イベント'], [3, 'Latest Info']];
+    const lists = await Promise.all(types.map(async ([type, label]) => {
+      try {
+        const j = await hoyoFetch(`${HOYO.bbs}/community/post/api/getNewsList?gids=6&type=${type}&page_size=5`);
+        if (j.retcode !== 0 || !j.data || !Array.isArray(j.data.list)) return [];
+        return j.data.list.map((it) => ({ it, label }));
+      } catch { return []; }
+    }));
+    const items = lists.flat().map(({ it, label }) => {
+      const p = it.post || {};
+      const cover = (Array.isArray(it.cover_list) && it.cover_list[0]) || (it.cover && it.cover.url ? it.cover : null);
+      return {
+        id: String(p.post_id || p.subject), title: p.subject || '(無題)',
+        url: p.post_id ? `https://www.hoyolab.com/article/${p.post_id}` : '',
+        author: (it.user && it.user.nickname) || 'HoYoLAB 公式',
+        time: p.created_at ? new Date(Number(p.created_at) * 1000).toISOString() : '',
+        text: String(p.content || '').replace(/\s+/g, ' ').slice(0, 160),
+        thumb: cover ? (cover.url || '') : '',
+        meta: label,
+      };
+    }).filter((i) => i.title && i.title !== '(無題)')
+      .sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0))
+      .slice(0, 15);
+    if (!items.length) throw new Error('ニュースを取得できませんでした');
+    return cacheSet(key, { ok: true, service: 'hkrpg', source: 'ニュース(公式)', items, fetchedAt: new Date().toISOString() });
+  } catch (e) { return errResult('hkrpg', 'ニュース(公式)', e); }
+}
+
 /* ================= 全フィード集約 ================= */
 async function feedAll(force = false) {
   const cfg = loadConfig();
@@ -630,6 +823,10 @@ async function feedAll(force = false) {
   if (cfg.youtube && cfg.youtube.enabled) for (const c of cfg.youtube.channels || []) tasks.push(feedYoutube(c, force));
   if (cfg.x && cfg.x.enabled) for (const a of cfg.x.accounts || []) tasks.push(feedX(a, force));
   if (cfg.gcal && cfg.gcal.enabled) for (const id of cfg.gcal.calendarIds || []) tasks.push(feedGcal(id, force));
+  if (cfg.hkrpg && cfg.hkrpg.enabled) {
+    tasks.push(feedHkrpg(cfg.hkrpg, force));
+    if (cfg.hkrpg.news !== false) tasks.push(feedHkrpgNews(force));
+  }
   const results = await Promise.all(tasks);
   return { ok: true, fetchedAt: new Date().toISOString(), env: envStatus(), results };
 }
@@ -754,7 +951,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/feed/all') {
       return json(res, await feedAll(u.searchParams.get('force') === '1'));
     }
-    const m = p.match(/^\/api\/feed\/(github|hn|reddit|rss|youtube|x|gcal)$/);
+    const m = p.match(/^\/api\/feed\/(github|hn|reddit|rss|youtube|x|gcal|hkrpg|hkrpgnews)$/);
     if (m) {
       const force = u.searchParams.get('force') === '1';
       const q = u.searchParams;
@@ -767,6 +964,8 @@ const server = http.createServer(async (req, res) => {
         case 'youtube': out = await feedYoutube(q.get('channel') || '', force); break;
         case 'x': out = await feedX(q.get('user') || '', force); break;
         case 'gcal': out = await feedGcal(q.get('calendarId') || 'primary', force); break;
+        case 'hkrpg': out = await feedHkrpg(cfg.hkrpg || DEFAULT_CONFIG.hkrpg, force); break;
+        case 'hkrpgnews': out = await feedHkrpgNews(force); break;
         case 'rss': {
           // セキュリティ: config.json に登録済みの URL だけ取得する(オープンプロキシ防止)
           const url = q.get('url') || '';

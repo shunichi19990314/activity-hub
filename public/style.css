@@ -23,6 +23,7 @@
   --c-youtube: #ff3355;
   --c-x: #d7dbe2;
   --c-gcal: #5ea1ff;
+  --c-hkrpg: #e8b64c;
 }
 [data-theme="light"] {
   --bg: #f3f5fa;
@@ -225,6 +226,10 @@ button { font-family: inherit; }
   background: rgba(127,127,127,.15); color: var(--muted);
 }
 .mini-badge svg { width: 11px; height: 11px; }
+
+/* 進捗バー(スターレイルの開拓力など) */
+.pbar { height: 5px; border-radius: 999px; background: rgba(127,127,127,.18); margin-top: 7px; overflow: hidden; max-width: 230px; }
+.pfill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #a855f7); transition: width .35s ease; }
 
 /* カレンダー状態 */
 .state-badge { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; }
