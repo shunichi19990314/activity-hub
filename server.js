@@ -36,6 +36,41 @@ const CACHE_TTL = 5 * 60 * 1000; // 5分間サーバー側キャッシュ(レー
 })();
 const ENV = (k) => (process.env[k] || '').trim();
 
+/* ---- ランタイム シークレット ----
+ * 設定画面(UI)から保存された API キーを secrets.json に保持し、再起動なしで即反映する。
+ * 優先順位: secrets.json(UI保存) > 環境変数 / .env
+ * ファイルは 0600 で保存し、API から値を返すことはない(設定済みフラグのみ)。 */
+const SECRET_KEYS = [
+  'GITHUB_TOKEN',
+  'REDDIT_CLIENT_ID', 'REDDIT_CLIENT_SECRET',
+  'YOUTUBE_API_KEY',
+  'X_BEARER_TOKEN', 'TWITTER_BEARER_TOKEN',
+  'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN',
+];
+let runtimeSecrets = {};
+const SECRETS_PATH = ENV('DATA_DIR') ? path.join(ENV('DATA_DIR'), 'secrets.json') : path.join(ROOT, 'secrets.json');
+try {
+  const loaded = JSON.parse(fs.readFileSync(SECRETS_PATH, 'utf8'));
+  for (const k of SECRET_KEYS) if (typeof loaded[k] === 'string' && loaded[k].trim()) runtimeSecrets[k] = loaded[k].trim();
+} catch { /* 未作成なら空 */ }
+
+function SECRET(k) {
+  const v = (runtimeSecrets[k] || '').trim();
+  return v || ENV(k);
+}
+function persistSecrets() {
+  fs.mkdirSync(path.dirname(SECRETS_PATH), { recursive: true });
+  fs.writeFileSync(SECRETS_PATH, JSON.stringify(runtimeSecrets, null, 2) + '\n', { mode: 0o600 });
+}
+function keySourceMap() {
+  const m = {};
+  for (const k of SECRET_KEYS) {
+    if ((runtimeSecrets[k] || '').trim()) m[k] = 'runtime';
+    else if (ENV(k)) m[k] = 'env';
+  }
+  return m;
+}
+
 /* ---- 設定ファイルの保存先 ----
  * 既定: アプリと同じフォルダの config.json
  * Railway 等のコンテナ環境では Volume を /data にマウントし DATA_DIR=/data を設定すると
@@ -59,12 +94,12 @@ const CONFIG_PATH = (() => {
 
 function envStatus() {
   return {
-    github: !!ENV('GITHUB_TOKEN'),
-    reddit: !!(ENV('REDDIT_CLIENT_ID') && ENV('REDDIT_CLIENT_SECRET')),
-    youtube: !!ENV('YOUTUBE_API_KEY'),
-    x: !!(ENV('X_BEARER_TOKEN') || ENV('TWITTER_BEARER_TOKEN')),
+    github: !!SECRET('GITHUB_TOKEN'),
+    reddit: !!(SECRET('REDDIT_CLIENT_ID') && SECRET('REDDIT_CLIENT_SECRET')),
+    youtube: !!SECRET('YOUTUBE_API_KEY'),
+    x: !!(SECRET('X_BEARER_TOKEN') || SECRET('TWITTER_BEARER_TOKEN')),
     gcal: !!(ENV('GOOGLE_APPLICATION_CREDENTIALS') ||
-      (ENV('GOOGLE_CLIENT_ID') && ENV('GOOGLE_CLIENT_SECRET') && ENV('GOOGLE_REFRESH_TOKEN'))),
+      (SECRET('GOOGLE_CLIENT_ID') && SECRET('GOOGLE_CLIENT_SECRET') && SECRET('GOOGLE_REFRESH_TOKEN'))),
   };
 }
 
@@ -252,10 +287,10 @@ async function feedGithub(user, force = false) {
   const cached = cacheGet(key, force); if (cached) return cached;
   try {
     const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-    if (ENV('GITHUB_TOKEN')) headers.Authorization = `Bearer ${ENV('GITHUB_TOKEN')}`;
+    if (SECRET('GITHUB_TOKEN')) headers.Authorization = `Bearer ${SECRET('GITHUB_TOKEN')}`;
     const res = await fetchRaw(`https://api.github.com/users/${encodeURIComponent(user)}/events/public?per_page=30`, { headers });
     if ((res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0') {
-      throw new Error('GitHub API のレート制限に達しました。.env に GITHUB_TOKEN を設定すると緩和されます(未認証は 60回/時)。');
+      throw new Error('GitHub API のレート制限に達しました。.env または設定画面で GITHUB_TOKEN を設定すると緩和されます(未認証は 60回/時)。');
     }
     if (res.status === 404) throw new Error(`ユーザー「${user}」が見つかりません(404)`);
     if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
@@ -293,9 +328,9 @@ async function feedHN(mode, limit, force = false) {
 /* ================= Reddit (OAuth 必要) ================= */
 let redditTokenCache = { token: null, expiresAt: 0 };
 async function getRedditToken() {
-  const id = ENV('REDDIT_CLIENT_ID'), sec = ENV('REDDIT_CLIENT_SECRET');
+  const id = SECRET('REDDIT_CLIENT_ID'), sec = SECRET('REDDIT_CLIENT_SECRET');
   if (!id || !sec) {
-    const e = new Error('.env に REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET を設定してください(https://www.reddit.com/prefs/apps で「script」アプリを作成)');
+    const e = new Error('REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET を設定してください(設定画面または .env)(https://www.reddit.com/prefs/apps で「script」アプリを作成)');
     e.code = 'credentials_required';
     throw e;
   }
@@ -409,7 +444,7 @@ async function resolveChannelId(input) {
 async function feedYoutube(channel, force = false) {
   const key = `yt:${channel}`;
   const cached = cacheGet(key, force); if (cached) return cached;
-  const apiKey = ENV('YOUTUBE_API_KEY');
+  const apiKey = SECRET('YOUTUBE_API_KEY');
   try {
     const cid = await resolveChannelId(channel);
     let items;
@@ -432,7 +467,7 @@ async function feedYoutube(channel, force = false) {
     } else {
       // キーなし: 公開 RSS フィード
       const res = await fetchRaw(`https://www.youtube.com/feeds/videos.xml?channel_id=${cid}`);
-      if (!res.ok) throw new Error(`RSS フィード取得失敗(HTTP ${res.status})。.env に YOUTUBE_API_KEY を設定すると Data API 経由で取得できます`);
+      if (!res.ok) throw new Error(`RSS フィード取得失敗(HTTP ${res.status})。YOUTUBE_API_KEY を設定すると Data API 経由で取得できます(設定画面または .env)`);
       const xml = await res.text();
       const entries = xml.match(/<entry>[\s\S]*?<\/entry>/gi) || [];
       items = entries.slice(0, 15).map((b) => {
@@ -463,9 +498,9 @@ async function feedX(user, force = false) {
   const key = `x:${user}`;
   const cached = cacheGet(key, force); if (cached) return cached;
   try {
-    const bearer = ENV('X_BEARER_TOKEN') || ENV('TWITTER_BEARER_TOKEN');
+    const bearer = SECRET('X_BEARER_TOKEN') || SECRET('TWITTER_BEARER_TOKEN');
     if (!bearer) {
-      const e = new Error('.env に X_BEARER_TOKEN を設定してください(developer.x.com で App を作成し Bearer Token を取得)');
+      const e = new Error('X_BEARER_TOKEN を設定してください(設定画面または .env)(developer.x.com で App を作成し Bearer Token を取得)');
       e.code = 'credentials_required';
       throw e;
     }
@@ -527,7 +562,7 @@ async function getGoogleToken() {
     return gcalTokenCache.token;
   }
   // B) OAuth リフレッシュトークン
-  const cid = ENV('GOOGLE_CLIENT_ID'), csec = ENV('GOOGLE_CLIENT_SECRET'), rt = ENV('GOOGLE_REFRESH_TOKEN');
+  const cid = SECRET('GOOGLE_CLIENT_ID'), csec = SECRET('GOOGLE_CLIENT_SECRET'), rt = SECRET('GOOGLE_REFRESH_TOKEN');
   if (cid && csec && rt) {
     const body = new URLSearchParams({ client_id: cid, client_secret: csec, refresh_token: rt, grant_type: 'refresh_token' });
     const res = await fetchRaw('https://oauth2.googleapis.com/token', {
@@ -538,7 +573,7 @@ async function getGoogleToken() {
     gcalTokenCache = { token: j.access_token, expiresAt: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
     return gcalTokenCache.token;
   }
-  const e = new Error('.env に Google 資格情報を設定してください(GOOGLE_APPLICATION_CREDENTIALS=サービスアカウントJSON のパス、または GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)');
+  const e = new Error('Google 資格情報を設定してください(設定画面または .env)(GOOGLE_APPLICATION_CREDENTIALS=サービスアカウントJSON のパス、または GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN)');
   e.code = 'credentials_required';
   throw e;
 }
@@ -666,7 +701,25 @@ const server = http.createServer(async (req, res) => {
       return res.end('401 Unauthorized');
     }
     if (p === '/api/state') {
-      return json(res, { ok: true, config: loadConfig(), env: envStatus() });
+      return json(res, { ok: true, config: loadConfig(), env: envStatus(), keySource: keySourceMap() });
+    }
+    if (p === '/api/secrets' && req.method === 'POST') {
+      // 設定画面から API キーを保存(再起動不要・即反映)
+      // body: { KEY: "値" } → 保存 / { KEY: null } → 削除 / 未指定・空文字 → 変更なし
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const updated = [];
+      for (const k of SECRET_KEYS) {
+        if (!(k in body)) continue;
+        const v = body[k];
+        if (v === null) { delete runtimeSecrets[k]; updated.push(k); continue; }
+        const s = String(v).trim();
+        if (s) { runtimeSecrets[k] = s; updated.push(k); }
+      }
+      persistSecrets();
+      cache.clear(); // 認証状態が変わったのでキャッシュを破棄
+      redditTokenCache = { token: null, expiresAt: 0 };
+      gcalTokenCache = { token: null, expiresAt: 0 };
+      return json(res, { ok: true, updated, env: envStatus(), keySource: keySourceMap() });
     }
     if (p === '/api/config' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -722,6 +775,7 @@ server.listen(PORT, () => {
   console.log(`│  →  http://localhost:${PORT}`);
   console.log('├──────────────────────────────────────────────┤');
   console.log(`│  設定ファイル: ${CONFIG_PATH}`);
+  console.log(`│  シークレット: ${SECRETS_PATH} (${Object.keys(runtimeSecrets).length}件・UIから保存可)`);
   console.log(`│  Basic認証   : ${ENV('BASIC_AUTH_USER') && ENV('BASIC_AUTH_PASS') ? '✅ 有効' : '— 無効'}`);
   console.log('│  資格情報の状態 (.env / 環境変数):');
   console.log(`│   GitHub トークン   : ${env.github ? '✅ 設定済み' : '— 未設定(キーなしでも動作/60回時)'}`);

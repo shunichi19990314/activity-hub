@@ -27,14 +27,31 @@ node server.js
 初期設定ではサンプルとして `torvalds`・`r/japan`・NHK NEWS・`@NHK` などが入っているので、
 右上の **設定** から自分のアカウント・フィードに差し替えてください。
 
-## APIキーの設定(任意)
+## APIキーの設定
+
+**3つの方法**があり、優先順位は ① > ② です(③は②のクラウド版)。
+
+### ① 設定画面から入力(一番簡単・再起動不要)
+
+ダッシュボード右上の **設定** を開き、各サービスの「🔑 APIキー」欄に貼り付けて
+**保存して再読み込み** を押すだけ。サーバーの `secrets.json`(アクセス権 600)に保存され、
+**その場で反映**されます。値がブラウザに返されることはありません(設定済みフラグのみ)。
+
+### ② `.env` ファイル(ローカル運用)
 
 1. `.env` ファイルを開く(`.env.example` がテンプレート)
 2. 使いたいサービスの行に値を書く
 3. `node server.js` を再起動
 
-キーはサーバー側だけが持ち、ブラウザには渡りません。未取得のカードには
-「🔑 要設定」とヒントが表示されます。
+### ③ Railway の Variables(クラウド運用)
+
+サービスの **Variables** タブに `.env` と同じ名前で登録します(再デプロイで自動反映)。
+
+> 🔒 **公開 URL で運用する場合**: 設定画面(=キー保存 API)も URL を知る人が触れるため、
+> `.env` / Variables で `BASIC_AUTH_USER` と `BASIC_AUTH_PASS` を設定して
+> Basic 認証を有効にすることを推奨します。
+
+未取得のカードには「🔑 要設定」とヒントが表示されます。
 
 ### 各キーの入手方法(要約)
 
@@ -122,6 +139,7 @@ Variables に `BASIC_AUTH_USER` と `BASIC_AUTH_PASS` の両方を設定する�
 activity-hub/
 ├── server.js        # ゼロ依存 Node サーバー(API集約・キャッシュ・認証情報管理)
 ├── config.json      # 追跡ソース設定(設定画面から編集される/初期値のシード)
+├── secrets.json     # 設定画面から保存したAPIキー(自動生成・gitignore済み・600)
 ├── package.json     # npm start エンジン定義(依存パッケージなし)
 ├── Dockerfile       # Railway / コンテナ用イメージ定義
 ├── railway.json     # Railway デプロイ設定(ヘルスチェック等)
@@ -138,10 +156,12 @@ activity-hub/
 
 ## API(参考)
 
-- `GET /api/state` — 現在の設定とキー設定状況
+- `GET /api/health` — ヘルスチェック(Railway 用・認証不要)
+- `GET /api/state` — 現在の設定とキー設定状況(値は含まずフラグのみ)
 - `GET /api/feed/all?force=1` — 全ソースのフィード
 - `GET /api/feed/{github|hn|reddit|rss|youtube|x|gcal}?...&force=1` — 個別ソース
-- `POST /api/config` — 設定保存
+- `POST /api/config` — ソース設定の保存
+- `POST /api/secrets` — APIキーの保存/削除(`{ "X_BEARER_TOKEN": "値" }` / 削除は `null`。`secrets.json` に 600 で保存し即反映)
 - RSS エンドポイントは `config.json` に登録済みの URL のみ取得します(オープンプロキシ防止)
 
 ## トラブルシュート

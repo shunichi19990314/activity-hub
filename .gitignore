@@ -1,5 +1,6 @@
 # APIキーなど機密情報
 .env
+secrets.json
 service-account.json
 *.pem
 

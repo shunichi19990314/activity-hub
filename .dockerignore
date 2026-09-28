@@ -1,5 +1,6 @@
 # シークレット(絶対にイメージ/アップロードに含めない)
 .env
+secrets.json
 service-account.json
 *.pem
 

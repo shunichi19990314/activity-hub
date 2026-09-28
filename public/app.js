@@ -29,6 +29,7 @@ const SERVICE_ORDER = ['github', 'hn', 'reddit', 'rss', 'youtube', 'x', 'gcal'];
 const state = {
   config: null,
   env: {},
+  keySource: {},
   results: [],
   fetchedAt: null,
   view: { mode: 'grid', service: null }, // mode: grid | timeline
@@ -60,6 +61,15 @@ function linkOrDiv(url, cls) {
     return a;
   }
   return el('div', cls);
+}
+
+/* ---------- トースト通知(alert の代わり。サンドボックス環境でも確実に見える) ---------- */
+function toast(msg, kind = 'info') {
+  let box = document.getElementById('toasts');
+  if (!box) { box = el('div'); box.id = 'toasts'; document.body.appendChild(box); }
+  const t = el('div', `toast toast-${kind}`, msg);
+  box.appendChild(t);
+  setTimeout(() => { t.classList.add('hide'); setTimeout(() => t.remove(), 350); }, 5500);
 }
 
 /* ---------- 時間表示 ---------- */
@@ -344,7 +354,7 @@ async function refreshOne(result, btn) {
     if (idx >= 0) state.results[idx] = data; else state.results.push(data);
     render();
   } catch (e) {
-    alert('再読み込みに失敗しました: ' + e.message);
+    toast('再読み込みに失敗しました: ' + e.message, 'err');
   } finally {
     if (btn) btn.querySelector('svg').classList.remove('spin');
   }
@@ -422,23 +432,38 @@ function initTheme() {
 
 /* ---------- 設定モーダル ---------- */
 let draft = null;
+let secretDraft = {}; // { ENV_KEY: '値' | null(削除) } — 触った項目だけ送信
 const SETTINGS_SCHEMA = [
-  { id: 'github', name: 'GitHub', desc: 'ユーザーの公開アクティビティ(プッシュ・スター・Issue など)', envKey: 'github', envLabel: 'GITHUB_TOKEN', envOptional: true, listKey: 'users', placeholder: 'ユーザー名(例: torvalds)', addLabel: '+ ユーザーを追加' },
+  { id: 'github', name: 'GitHub', desc: 'ユーザーの公開アクティビティ(プッシュ・スター・Issue など)', envKey: 'github', envOptional: true, listKey: 'users', placeholder: 'ユーザー名(例: torvalds)', addLabel: '+ ユーザーを追加',
+    keys: [{ k: 'GITHUB_TOKEN', label: 'Personal Access Token', ph: 'ghp_… または github_pat_…(権限スコープ不要)', optional: true, hint: '任意。未設定でも動作しますが 60回/時の制限あり → 設定で 5,000回/時' }] },
   { id: 'hn', name: 'Hacker News', desc: 'トップ記事(キー不要)', envKey: null, hn: true },
-  { id: 'reddit', name: 'Reddit', desc: 'サブreddit の新着投稿', envKey: 'reddit', envLabel: 'REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET', envRequired: true, listKey: 'subreddits', placeholder: 'サブreddit名(例: japan)', addLabel: '+ サブレディットを追加' },
+  { id: 'reddit', name: 'Reddit', desc: 'サブreddit の新着投稿', envKey: 'reddit', envRequired: true, listKey: 'subreddits', placeholder: 'サブreddit名(例: japan)', addLabel: '+ サブレディットを追加',
+    keys: [
+      { k: 'REDDIT_CLIENT_ID', label: 'Client ID', ph: 'アプリ名の下にある14文字程度のID', required: true },
+      { k: 'REDDIT_CLIENT_SECRET', label: 'Client Secret', ph: 'secret の値', required: true },
+    ], keyNote: '取得: reddit.com/prefs/apps →「create an app」→ 種類 script(無料)' },
   { id: 'rss', name: 'RSS フィード', desc: 'お好きなブログ・ニュースサイト(キー不要)', envKey: null, feeds: true },
-  { id: 'youtube', name: 'YouTube', desc: 'チャンネルの最近の動画', envKey: 'youtube', envLabel: 'YOUTUBE_API_KEY', envOptional: true, optionalNote: 'キーなしでも RSS 経由で動作(取得できない場合はキー推奨)', listKey: 'channels', placeholder: '@ハンドル / チャンネルID(UC…) / URL', addLabel: '+ チャンネルを追加' },
-  { id: 'x', name: 'X (Twitter)', desc: 'アカウントの最近の投稿', envKey: 'x', envLabel: 'X_BEARER_TOKEN', envRequired: true, listKey: 'accounts', placeholder: 'アカウント名 @なし(例: NASA)', addLabel: '+ アカウントを追加' },
-  { id: 'gcal', name: 'Google カレンダー', desc: '過去7日〜未来21日の予定', envKey: 'gcal', envLabel: 'GOOGLE_APPLICATION_CREDENTIALS または GOOGLE_CLIENT_ID / SECRET / REFRESH_TOKEN', envRequired: true, listKey: 'calendarIds', placeholder: 'カレンダーID(自分の既定は primary)', addLabel: '+ カレンダーを追加' },
+  { id: 'youtube', name: 'YouTube', desc: 'チャンネルの最近の動画', envKey: 'youtube', envOptional: true, optionalNote: 'キーなしでも RSS 経由で動作(取得できない場合はキー推奨)', listKey: 'channels', placeholder: '@ハンドル / チャンネルID(UC…) / URL', addLabel: '+ チャンネルを追加',
+    keys: [{ k: 'YOUTUBE_API_KEY', label: 'API キー', ph: 'AIza…(YouTube Data API v3)', optional: true, hint: '任意。RSS で取得できない環境では設定を推奨' }] },
+  { id: 'x', name: 'X (Twitter)', desc: 'アカウントの最近の投稿', envKey: 'x', envRequired: true, listKey: 'accounts', placeholder: 'アカウント名 @なし(例: NASA)', addLabel: '+ アカウントを追加',
+    keys: [{ k: 'X_BEARER_TOKEN', label: 'Bearer Token', ph: 'AAAA…(API v2 Bearer Token)', required: true }],
+    keyNote: '取得: developer.x.com → Projects & Apps → 該当App → Keys and tokens → Bearer Token' },
+  { id: 'gcal', name: 'Google カレンダー', desc: '過去7日〜未来21日の予定', envKey: 'gcal', envRequired: true, listKey: 'calendarIds', placeholder: 'カレンダーID(自分の既定は primary)', addLabel: '+ カレンダーを追加',
+    keys: [
+      { k: 'GOOGLE_CLIENT_ID', label: 'OAuth Client ID', ph: 'xxxx.apps.googleusercontent.com' },
+      { k: 'GOOGLE_CLIENT_SECRET', label: 'Client Secret', ph: 'GOCSPX-…' },
+      { k: 'GOOGLE_REFRESH_TOKEN', label: 'Refresh Token', ph: '1//0…(calendar.readonly スコープ)' },
+    ], keyNote: 'サービスアカウント方式を使う場合は .env の GOOGLE_APPLICATION_CREDENTIALS で JSON パスを指定してください' },
 ];
 
 function openSettings() {
   if (state.demo) {
-    alert('デモモードでは設定を変更できません。\nactivity-hub フォルダで「node server.js」を実行し、http://localhost:3000 を開いてご利用ください。');
+    toast('デモモード: サーバーに接続されていないため設定は変更できません。activity-hub フォルダで「node server.js」を実行し、http://localhost:3000 を開いてください。', 'warn');
     return;
   }
   if (!state.config) return;
   draft = JSON.parse(JSON.stringify(state.config));
+  secretDraft = {};
   renderSettings();
   $('#modal-overlay').hidden = false;
   document.body.style.overflow = 'hidden';
@@ -465,9 +490,11 @@ function renderSettings() {
     // 資格情報の状態ピル
     if (s.envKey) {
       const on = !!state.env[s.envKey];
+      const srcs = (s.keys || []).map((k) => state.keySource[k.k]).filter(Boolean);
+      const srcLabel = srcs.includes('runtime') ? '設定画面で保存済み' : srcs.includes('env') ? '.env/環境変数で設定済み' : '';
       const pill = el('span', 'status-pill ' + (on ? 'status-on' : s.envRequired ? 'status-warn' : 'status-off'),
         on ? '🔑 設定済み' : s.envRequired ? '🔑 要設定' : 'キーなしで動作');
-      pill.title = `${s.envLabel || ''}${s.optionalNote ? ' — ' + s.optionalNote : ''}`;
+      pill.title = srcLabel || (s.optionalNote || '下の入力欄から設定できます(保存後すぐ反映)');
       head.appendChild(pill);
     } else {
       head.appendChild(el('span', 'status-pill status-on', 'キー不要'));
@@ -501,9 +528,66 @@ function renderSettings() {
     } else if (s.listKey) {
       renderListRows(sbody, s);
     }
+    // APIキー入力欄
+    if (s.keys) {
+      const kb = el('div', 'keys-block');
+      kb.appendChild(el('div', 'keys-title', s.envRequired ? '🔑 APIキー(このサービスに必要)' : '🔑 APIキー(任意)'));
+      if (s.keyNote) kb.appendChild(el('div', 'setting-note', s.keyNote));
+      for (const keyDef of s.keys) kb.appendChild(buildKeyRow(keyDef));
+      sbody.appendChild(kb);
+    }
     section.appendChild(sbody);
     body.appendChild(section);
   }
+}
+
+/* APIキー1行: ラベル+状態 + パスワード入力 + 削除ボタン */
+function buildKeyRow(keyDef) {
+  const row = el('div', 'key-row');
+  let src = state.keySource[keyDef.k];
+  if (!src && keyDef.k === 'X_BEARER_TOKEN') src = state.keySource['TWITTER_BEARER_TOKEN'];
+
+  const label = el('div', 'key-label');
+  label.appendChild(el('code', '', keyDef.k));
+  const st = el('span', 'key-status ' + (src === 'runtime' ? 'set-runtime' : src === 'env' ? 'set-env' : 'unset'),
+    src === 'runtime' ? '設定済み(設定画面で保存)' : src === 'env' ? '設定済み(.env/環境変数)' : '未設定');
+  label.appendChild(st);
+  row.appendChild(label);
+  if (keyDef.hint) row.appendChild(el('div', 'setting-note', keyDef.hint));
+
+  const line = el('div', 'key-input-line');
+  const inp = el('input');
+  inp.type = 'password'; inp.placeholder = src ? '変更する場合のみ入力(空欄なら維持)' : (keyDef.ph || '');
+  inp.autocomplete = 'off'; inp.spellcheck = false;
+  inp.addEventListener('input', () => {
+    if (secretDraft[keyDef.k] === null) return; // 削除予約中は無視
+    const v = inp.value.trim();
+    if (v) secretDraft[keyDef.k] = v; else delete secretDraft[keyDef.k];
+  });
+  line.appendChild(inp);
+
+  if (src) {
+    const del = el('button', 'btn-key-del', '保存済みキーを削除');
+    del.addEventListener('click', () => {
+      if (secretDraft[keyDef.k] === null) {
+        // 取り消し
+        delete secretDraft[keyDef.k];
+        st.className = 'key-status ' + (src === 'runtime' ? 'set-runtime' : 'set-env');
+        st.textContent = src === 'runtime' ? '設定済み(設定画面で保存)' : '設定済み(.env/環境変数)';
+        del.textContent = '保存済みキーを削除';
+        inp.disabled = false;
+      } else {
+        secretDraft[keyDef.k] = null; // null = 削除要求
+        st.className = 'key-status unset';
+        st.textContent = '削除予定(保存ボタンで反映)';
+        del.textContent = '削除を取り消し';
+        inp.value = ''; inp.disabled = true;
+      }
+    });
+    line.appendChild(del);
+  }
+  row.appendChild(line);
+  return row;
 }
 
 function renderListRows(container, s) {
@@ -558,17 +642,37 @@ async function saveSettings() {
     .filter((f) => /^https?:\/\//i.test(f.url));
   const btn = $('#btn-config-save');
   btn.disabled = true; btn.textContent = '保存中…';
+  let savedKeys = 0;
   try {
+    // 1) APIキー(触った項目だけ送信: 文字列=保存 / null=削除)
+    const touched = {};
+    for (const [k, v] of Object.entries(secretDraft)) {
+      if (v === null) touched[k] = null;
+      else if (String(v).trim()) touched[k] = String(v).trim();
+    }
+    if (Object.keys(touched).length) {
+      const r = await fetch('/api/secrets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(touched),
+      });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.message || 'APIキーの保存に失敗しました');
+      state.env = d.env || state.env;
+      state.keySource = d.keySource || {};
+      savedKeys = Object.keys(touched).length;
+    }
+    // 2) ソース設定
     const res = await fetch('/api/config', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft),
     });
     const data = await res.json();
-    if (!data.ok) throw new Error(data.message || '保存失敗');
+    if (!data.ok) throw new Error(data.message || '設定の保存に失敗しました');
     state.config = data.config;
+    draft = null; secretDraft = {};
     closeSettings();
+    toast(savedKeys ? `設定とAPIキー(${savedKeys}件)を保存しました。最新データを取得中…` : '設定を保存しました。最新データを取得中…', 'ok');
     await fetchAll(true);
   } catch (e) {
-    alert('保存に失敗しました: ' + e.message);
+    toast('保存に失敗しました: ' + e.message, 'err');
   } finally {
     btn.disabled = false; btn.textContent = '保存して再読み込み';
   }
@@ -594,6 +698,7 @@ async function init() {
     if (!data.ok) throw new Error(data.message);
     state.config = data.config;
     state.env = data.env || {};
+    state.keySource = data.keySource || {};
   } catch {
     enterDemoMode();
     return;
