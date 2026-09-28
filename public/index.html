@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activity Hub — 最近のアクティビティ ダッシュボード</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+    </span>
+    <div class="brand-text">
+      <h1>Activity Hub</h1>
+      <p class="brand-sub">いろいろなサイトの最近のアクティビティをまとめてチェック</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <span id="last-updated" class="last-updated" title="最後の更新時刻"></span>
+    <button id="btn-refresh" class="btn btn-ghost" title="すべて再読み込み">
+      <svg viewBox="0 0 24 24" width="16" height="16" class="ico-refresh"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4"/></svg>
+      <span>更新</span>
+    </button>
+    <button id="btn-theme" class="btn btn-icon" title="テーマ切替">
+      <svg id="ico-theme" viewBox="0 0 24 24" width="17" height="17"></svg>
+    </button>
+    <button id="btn-settings" class="btn btn-primary" title="設定">
+      <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.09A1.7 1.7 0 0 0 10.1 3V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1.03z"/></svg>
+      <span>設定</span>
+    </button>
+  </div>
+</header>
+
+<div id="banner" class="banner" hidden></div>
+
+<nav id="chips" class="chips" aria-label="サービスフィルター"></nav>
+
+<main id="main" class="main">
+  <div id="grid" class="grid"></div>
+  <div id="timeline" class="timeline" hidden></div>
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    <p>アクティビティを読み込み中…</p>
+  </div>
+</main>
+
+<footer class="footer">
+  <span>Activity Hub · Node.js ゼロ依存サーバー · データは各サービスの公開API / 公式APIから取得</span>
+</footer>
+
+<!-- ============ 設定モーダル ============ -->
+<div id="modal-overlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-head">
+      <h2 id="modal-title">設定</h2>
+      <button id="btn-modal-close" class="btn btn-icon" title="閉じる">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="modal-body"><!-- JSで生成 --></div>
+    <div class="modal-foot">
+      <p class="modal-note">🔑 APIキーはサーバーの <code>.env</code> ファイルで設定します(編集後にサーバー再起動)。取得方法は README.md を参照。</p>
+      <div class="modal-foot-btns">
+        <button id="btn-config-cancel" class="btn btn-ghost">キャンセル</button>
+        <button id="btn-config-save" class="btn btn-primary">保存して再読み込み</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

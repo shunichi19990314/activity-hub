@@ -1,0 +1,15 @@
+# シークレット(絶対にイメージ/アップロードに含めない)
+.env
+service-account.json
+*.pem
+
+# 開発・VCS
+.git
+.gitignore
+node_modules
+
+# ドキュメント/デプロイ設定(イメージには不要)
+README.md
+Dockerfile
+.dockerignore
+railway.json

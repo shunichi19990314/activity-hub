@@ -1,0 +1,9 @@
+# APIキーなど機密情報
+.env
+service-account.json
+*.pem
+
+# 実行時に生成される設定(必要ならコミットしてもOK)
+# config.json
+
+node_modules/

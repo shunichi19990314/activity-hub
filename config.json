@@ -1,0 +1,46 @@
+{
+  "github": {
+    "enabled": true,
+    "users": [
+      "torvalds"
+    ]
+  },
+  "hn": {
+    "enabled": true,
+    "mode": "top",
+    "limit": 15
+  },
+  "reddit": {
+    "enabled": true,
+    "subreddits": [
+      "japan"
+    ]
+  },
+  "rss": {
+    "enabled": true,
+    "feeds": [
+      {
+        "name": "NHK NEWS",
+        "url": "https://www3.nhk.or.jp/rss/news/cat0.xml"
+      }
+    ]
+  },
+  "youtube": {
+    "enabled": true,
+    "channels": [
+      "@NHK"
+    ]
+  },
+  "x": {
+    "enabled": true,
+    "accounts": [
+      "NASA"
+    ]
+  },
+  "gcal": {
+    "enabled": true,
+    "calendarIds": [
+      "primary"
+    ]
+  }
+}
