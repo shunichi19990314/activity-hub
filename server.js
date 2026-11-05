@@ -115,7 +115,7 @@ const DEFAULT_CONFIG = {
   youtube: { enabled: true, channels: [] },
   x:       { enabled: true, accounts: [] },
   gcal:    { enabled: true, calendarIds: [] },
-  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true },
+  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true, codes: true },
 };
 
 /* 「サンプルで試す」用のスターター設定(キー不要なソースのみ) */
@@ -127,7 +127,7 @@ const STARTER_CONFIG = {
   youtube: { enabled: true, channels: ['@NHK'] },
   x:       { enabled: true, accounts: [] },
   gcal:    { enabled: true, calendarIds: [] },
-  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true },
+  hkrpg:   { enabled: false, region: 'os_asia', uid: '', checkin: false, news: true, codes: true },
 };
 
 function loadConfig() {
@@ -177,6 +177,7 @@ function sanitizeConfig(input) {
       uid: str(g.hkrpg.uid).replace(/\D/g, '').slice(0, 12),
       checkin: !!g.hkrpg.checkin,
       news: g.hkrpg.news !== false,
+      codes: g.hkrpg.codes !== false,
     };
   }
   return out;
@@ -812,6 +813,29 @@ async function feedHkrpgNews(force = false) {
   } catch (e) { return errResult('hkrpg', 'ニュース(公式)', e); }
 }
 
+// 有効なシリアルコード(コミュニティ API・Cookie 不要)
+async function feedHkrpgCodes(force = false) {
+  const key = 'hkrpg:codes';
+  const cached = cacheGet(key, force); if (cached) return cached;
+  try {
+    const j = await fetchJSON('https://api.ennead.cc/mihoyo/starrail/codes');
+    const active = Array.isArray(j.active) ? j.active : [];
+    if (!active.length) throw new Error('有効なシリアルコードが見つかりませんでした');
+    const items = active.map((c) => ({
+      id: `hkrpg-code-${c.code}`,
+      title: c.code,
+      url: `https://hsr.hoyoverse.com/gift?code=${encodeURIComponent(c.code)}`,
+      author: '',
+      time: '',
+      text: Array.isArray(c.rewards) ? c.rewards.join(' / ') : '',
+      meta: 'タップで交換ページを開く',
+    }));
+    return cacheSet(key, { ok: true, service: 'hkrpg', source: 'シリアルコード', items, fetchedAt: new Date().toISOString() });
+  } catch (e) {
+    return errResult('hkrpg', 'シリアルコード', e, { message: (e.message || '') + ' (コミュニティ運営の API のため、一時的に取得できないことがあります)' });
+  }
+}
+
 /* ================= 全フィード集約 ================= */
 async function feedAll(force = false) {
   const cfg = loadConfig();
@@ -826,6 +850,7 @@ async function feedAll(force = false) {
   if (cfg.hkrpg && cfg.hkrpg.enabled) {
     tasks.push(feedHkrpg(cfg.hkrpg, force));
     if (cfg.hkrpg.news !== false) tasks.push(feedHkrpgNews(force));
+    if (cfg.hkrpg.codes !== false) tasks.push(feedHkrpgCodes(force));
   }
   const results = await Promise.all(tasks);
   return { ok: true, fetchedAt: new Date().toISOString(), env: envStatus(), results };
@@ -951,7 +976,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/feed/all') {
       return json(res, await feedAll(u.searchParams.get('force') === '1'));
     }
-    const m = p.match(/^\/api\/feed\/(github|hn|reddit|rss|youtube|x|gcal|hkrpg|hkrpgnews)$/);
+    const m = p.match(/^\/api\/feed\/(github|hn|reddit|rss|youtube|x|gcal|hkrpg|hkrpgnews|hkrpgcodes)$/);
     if (m) {
       const force = u.searchParams.get('force') === '1';
       const q = u.searchParams;
@@ -966,6 +991,7 @@ const server = http.createServer(async (req, res) => {
         case 'gcal': out = await feedGcal(q.get('calendarId') || 'primary', force); break;
         case 'hkrpg': out = await feedHkrpg(cfg.hkrpg || DEFAULT_CONFIG.hkrpg, force); break;
         case 'hkrpgnews': out = await feedHkrpgNews(force); break;
+        case 'hkrpgcodes': out = await feedHkrpgCodes(force); break;
         case 'rss': {
           // セキュリティ: config.json に登録済みの URL だけ取得する(オープンプロキシ防止)
           const url = q.get('url') || '';

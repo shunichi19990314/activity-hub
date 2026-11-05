@@ -414,6 +414,7 @@ async function refreshOne(result, btn) {
     case 'gcal': p.set('calendarId', result.source); break;
     case 'hkrpg':
       if (String(result.source).startsWith('ニュース')) endpoint = '/api/feed/hkrpgnews';
+      else if (String(result.source) === 'シリアルコード') endpoint = '/api/feed/hkrpgcodes';
       break;
     case 'rss': {
       const feed = (state.config.rss.feeds || []).find((f) => (f.name || new URL(f.url).hostname) === result.source || f.url === result.source);
@@ -529,7 +530,7 @@ const SETTINGS_SCHEMA = [
       { k: 'GOOGLE_CLIENT_SECRET', label: 'Client Secret', ph: 'GOCSPX-…' },
       { k: 'GOOGLE_REFRESH_TOKEN', label: 'Refresh Token', ph: '1//0…(calendar.readonly スコープ)' },
     ], keyNote: 'サービスアカウント方式を使う場合は .env の GOOGLE_APPLICATION_CREDENTIALS で JSON パスを指定してください' },
-  { id: 'hkrpg', name: '崩壊:スターレイル', desc: '開拓力・日課・週間・派遣 + 公式ニュース(HoYoLAB 国際版・非公式API)', envKey: 'hkrpg', envRequired: true, hkrpgCustom: true,
+  { id: 'hkrpg', name: '崩壊:スターレイル', desc: '公式ニュース・シリアルコード(Cookie不要) + 開拓力・日課・派遣(Cookie必要)', envKey: 'hkrpg', envRequired: false, hkrpgCustom: true,
     keys: [{ k: 'HOYOLAB_COOKIE', label: 'HoYoLAB Cookie', ph: 'ltoken_v2=…; ltmid_v2=…', required: true,
       hint: 'パスワード同然の認証情報です。サーバー側(secrets.json・600)にのみ保存され、ブラウザには返りません' }],
     keyNote: '取得方法: hoyolab.com にログイン → F12(開発者ツール)→ Application → Cookies → https://www.hoyolab.com → 「ltoken_v2」と「ltmid_v2」の値を「ltoken_v2=値; ltmid_v2=値」の形で貼り付け' },
@@ -700,6 +701,7 @@ function renderHkrpgBlock(container) {
     container.appendChild(row);
   };
   mkSwitch(c.news !== false, '公式ニュース(お知らせ・イベント)を表示 — Cookie 不要', (v) => { c.news = v; });
+  mkSwitch(c.codes !== false, '有効なシリアルコード(報酬付き・タップで交換ページ)を表示 — Cookie 不要', (v) => { c.codes = v; });
   mkSwitch(c.checkin, '⚠️ HoYoLAB デイリーサインインを自動化(非公式の書き込み操作・自己責任)', (v) => { c.checkin = v; });
 
   container.appendChild(el('div', 'setting-note',
